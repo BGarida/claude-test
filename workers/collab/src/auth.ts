@@ -6,7 +6,6 @@
  */
 
 import { createHash } from 'crypto';
-import type { Extension, onAuthenticatePayload } from '@hocuspocus/server';
 import { resolveDocumentAccess } from '@proof-clone/db';
 
 /**
@@ -16,47 +15,39 @@ export function hashToken(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
-export class AuthExtension implements Extension {
-  async onAuthenticate(data: onAuthenticatePayload): Promise<void> {
-    const { token, documentName, connection } = data;
+/**
+ * Returns a HocusPocus-compatible extension object that authenticates
+ * incoming WebSocket connections using document access tokens.
+ */
+export function createAuthExtension() {
+  return {
+    async onAuthenticate(data: {
+      token: string;
+      documentName: string;
+      connection: { readOnly: boolean };
+      context: Record<string, unknown>;
+    }): Promise<void> {
+      const { token, documentName, connection, context } = data;
 
-    if (!token) {
-      throw new Error('Authentication token required');
-    }
+      if (!token) {
+        throw new Error('Authentication token required');
+      }
 
-    const secretHash = hashToken(token);
-    const access = await resolveDocumentAccess(documentName, secretHash);
+      const secretHash = hashToken(token);
+      const access = await resolveDocumentAccess(documentName, secretHash);
 
-    if (!access) {
-      throw new Error('Invalid or revoked access token');
-    }
+      if (!access) {
+        throw new Error('Invalid or revoked access token');
+      }
 
-    // Store resolved access info on the connection context so other
-    // extensions (e.g. persistence) can read it.
-    connection.readOnly = access.role === 'viewer';
+      // Mark read-only connections so HocusPocus rejects their edits.
+      connection.readOnly = access.role === 'viewer';
 
-    // Attach metadata to the context object for downstream use.
-    (data.context as Record<string, unknown>).role = access.role;
-    (data.context as Record<string, unknown>).tokenId = access.tokenId;
-    (data.context as Record<string, unknown>).accessEpoch = access.accessEpoch;
-    (data.context as Record<string, unknown>).isOwner = access.isOwner;
-  }
-
-  // ── No-op lifecycle hooks (required by Extension interface) ──────────────
-
-  async onLoadDocument() {}
-  async onConnect() {}
-  async onChange() {}
-  async onStoreDocument() {}
-  async onDisconnect() {}
-  async onConfigure() {}
-  async onListen() {}
-  async onDestroy() {}
-  async onRequest() {}
-  async onUpgrade() {}
-  async onStateless() {}
-  async afterLoadDocument() {}
-  async afterStoreDocument() {}
-  async afterUnloadDocument() {}
-  async onAwarenessUpdate() {}
+      // Attach metadata to the context object for downstream use.
+      context.role = access.role;
+      context.tokenId = access.tokenId;
+      context.accessEpoch = access.accessEpoch;
+      context.isOwner = access.isOwner;
+    },
+  };
 }

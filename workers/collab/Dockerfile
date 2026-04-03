@@ -9,14 +9,16 @@ WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
 COPY turbo.json tsconfig.base.json ./
 
-# Copy only the collab worker and its dependencies
+# Copy the collab worker and its workspace dependency
 COPY workers/collab/ ./workers/collab/
+COPY packages/db/ ./packages/db/
 
 # Install dependencies
 RUN pnpm install --frozen-lockfile || pnpm install
 
 # Build
 FROM base AS builder
+RUN pnpm --filter @proof-clone/db build || true
 RUN pnpm --filter @proof-clone/collab-worker build
 
 # Production
